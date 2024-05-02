@@ -11,7 +11,7 @@ enum TxState {
 
 enum CurrencyTypes {
     BTC = "BTC",
-    DINGO = "DINGO"
+    DOGE = "DOGE"
 }
 
 interface Transaction {
@@ -29,8 +29,8 @@ function generateAddress(currency: CurrencyTypes) {
         case CurrencyTypes.BTC: {
             return "1btcaddress0"
         }
-        case CurrencyTypes.DINGO: {
-            return "Dingoaddress0"
+        case CurrencyTypes.DOGE: {
+            return "Dogeaddress0"
         }
     }
 }
@@ -67,7 +67,7 @@ class PaymentManager {
     }
 }
 
-const generatedPayment: PaymentManager = new PaymentManager("user33133", 34949 * 1e8, CurrencyTypes.DINGO)
+const generatedPayment: PaymentManager = new PaymentManager("user33133", 34949 * 1e8, CurrencyTypes.DOGE)
 
 paymentsToWatch.push(generatedPayment.getPayment())
 allPayments.push(generatedPayment)
