@@ -65,6 +65,10 @@ class PaymentManager {
         } 
         return payment;
     }
+
+    updateTransaction(tx: Transaction) {
+        this.paymentTransaction = tx;
+    }
 }
 
 const generatedPayment: PaymentManager = new PaymentManager("user33133", 34949 * 1e8, CurrencyTypes.DOGE)
