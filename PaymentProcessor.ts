@@ -28,9 +28,6 @@ enum WalletInfo {
     ".dingocoin"
 }
 
-const bitcoinCookie: string = "~/.bitcoin/.cookie".replace("~", homedir());
-const dingoCookie: string = "~/.dingocoin/.cookie".replace("~", homedir());
-
 const enabledCoins: Array<CurrencyTypes> = [CurrencyTypes.BTC, CurrencyTypes.DINGO];
 
 class WalletManager {
@@ -140,7 +137,6 @@ class PaymentManager {
 
 
 class PaymentMonitor {
-
     checkPayments() {
         paymentsToWatch.forEach(paymentElement => {
             const paymentId: string = paymentElement.paymentId
@@ -174,4 +170,3 @@ allPayments.push(generatedPayment3)
 
 const monitor = new PaymentMonitor;
 monitor.start();
-
