@@ -1,3 +1,8 @@
+import { homedir } from 'os';
+import { readFileSync } from 'fs'
+import * as request from "request"
+import { Promise } from "es6-promise"
+
 //tranactions
 enum TxState {
     CONFIRMED,
@@ -15,11 +20,59 @@ interface Transaction {
 
 //wallets
 enum CurrencyTypes {
-    BTC = "BTC",
-    DOGE = "DOGE"
+    BTC,
+    DOGE
 }
 
+enum WalletInfo {
+    ".bitcoin",
+    ".dingocoin"
+}
+
+const bitcoinCookie: string = "~/.bitcoin/.cookie".replace("~", homedir());
+const dingoCookie: string = "~/.dingocoin/.cookie".replace("~", homedir());
+
+const enabledCoins: Array<CurrencyTypes> = [CurrencyTypes.BTC, CurrencyTypes.DOGE];
+
 class WalletManager {
+    callRpc(method: string, params: Array<string>, walletName: CurrencyTypes) {
+        const cookie = this.getCookie(walletName);
+        const options = {
+            url: "http://localhost:" + 3333, //TODO: fix port
+            method: "post",
+            headers: { "content-type": "text/plain" },
+            auth: { user: cookie.user, pass: cookie.password },
+            body: JSON.stringify({ "jsonrpc": "1.0", "method": method, "params": params })
+        };
+
+        return new Promise((resolve, reject) => {
+            request(options, (err, resp, body) => {
+                if (err) {
+                    return reject(err);
+                } else {
+                    const r = JSON.parse(body
+                        .replace(/"(amount|value)":\s*(\d+)\.((\d*?[1-9])0*),/g, '"$1":"$2\.$4",')
+                        .replace(/"(amount|value)":\s*(\d+)\.0+,/g, '"$1":"$2",'));
+                    if (r.error) {
+                        console.log(r.error.message)
+                        reject(r.error.message);
+                    } else {
+                        resolve(r.result);
+                    }
+                }
+            });
+        });
+    }
+
+    getCookieLocation(targetWallet: CurrencyTypes) {
+        return "~/coin/.cookie".replace("~", homedir()).replace("coin", WalletInfo[Object.keys(CurrencyTypes).indexOf(targetWallet.toFixed())])
+    }
+
+    getCookie(targetWallet: CurrencyTypes) {
+        const data = readFileSync(this.getCookieLocation(targetWallet), 'utf-8').split(':');
+        return { user: data[0], password: data[1] };
+    }
+
     generateAddress(currency: CurrencyTypes) {
         switch (currency) {
             case CurrencyTypes.BTC: {
@@ -34,16 +87,7 @@ class WalletManager {
 
 const walletManager = new WalletManager();
 
-function generateAddress(currency: CurrencyTypes) {
-    switch (currency) {
-        case CurrencyTypes.BTC: {
-            return "1btcaddress0"
-        }
-        case CurrencyTypes.DOGE: {
-            return "Dogeaddress0"
-        }
-    }
-}
+walletManager.callRpc("getblockchaininfo", [], CurrencyTypes.DOGE).then(result => console.log(result))
 
 //payments
 let allPayments: Array<PaymentManager> = [];
@@ -89,23 +133,26 @@ class PaymentManager {
     }
 }
 
+
 class PaymentMonitor {
-    start() {
-        setInterval(() => {
-            allPayments.forEach(element => {
-                const payment: PaymentManager = new PaymentManager("", element.paymentCreator, element.paymentAmount, element.paymentCurrency, "")
-                paymentsToWatch.forEach(element => {
-                    if (element.paymentId == payment.paymentId) {
-                        console.log("match")
-                    }
-                })
+
+    checkPayments() {
+        paymentsToWatch.forEach(paymentElement => {
+            const paymentId: string = paymentElement.paymentId
+            allPayments.forEach(allPaymentsElement => {
+                const payment: PaymentManager = new PaymentManager(allPaymentsElement.paymentId, allPaymentsElement.paymentCreator, allPaymentsElement.paymentAmount, allPaymentsElement.paymentCurrency, allPaymentsElement.paymentDestationAddress)
+                if (paymentId == payment.paymentId) {
+                    console.log("match")
+                }
             })
-        }, 1e4)
+        })
+    }
+
+    start() {
+        this.checkPayments();
+        setInterval(this.checkPayments, 1e4)
     }
 }
-
-const monitor = new PaymentMonitor;
-monitor.start();
 
 const generatedPayment: PaymentManager = new PaymentManager("", "user33133", 34949 * 1e8, CurrencyTypes.DOGE, "")
 const generatedPayment2: PaymentManager = new PaymentManager("", "user25513", 41556 * 1e8, CurrencyTypes.DOGE, "")
@@ -117,4 +164,9 @@ paymentsToWatch.push(generatedPayment2.getPayment())
 allPayments.push(generatedPayment2)
 paymentsToWatch.push(generatedPayment3.getPayment())
 allPayments.push(generatedPayment3)
+
+//start services
+
+const monitor = new PaymentMonitor;
+monitor.start();
 
