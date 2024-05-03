@@ -5,9 +5,7 @@
   },
   "packageManager": "yarn@4.1.1+sha512.ec40d0639bb307441b945d9467139cbb88d14394baac760b52eca038b330d16542d66fef61574271534ace5a200518dabf3b53a85f1f9e4bfa37141b538a9590",
   "dependencies": {
-    "@types/es6-promise": "^3.3.0",
     "@types/node": "^20.12.8",
-    "es6-promise": "^4.2.8",
     "os": "^0.1.2",
     "request": "^2.88.2"
   }

@@ -1,7 +1,6 @@
 import { homedir } from 'os';
 import { readFileSync } from 'fs'
 import * as request from "request"
-import { Promise } from "es6-promise"
 
 //tranactions
 enum TxState {
@@ -21,7 +20,7 @@ interface Transaction {
 //wallets
 enum CurrencyTypes {
     BTC,
-    DOGE
+    DINGO
 }
 
 enum WalletInfo {
@@ -32,10 +31,10 @@ enum WalletInfo {
 const bitcoinCookie: string = "~/.bitcoin/.cookie".replace("~", homedir());
 const dingoCookie: string = "~/.dingocoin/.cookie".replace("~", homedir());
 
-const enabledCoins: Array<CurrencyTypes> = [CurrencyTypes.BTC, CurrencyTypes.DOGE];
+const enabledCoins: Array<CurrencyTypes> = [CurrencyTypes.BTC, CurrencyTypes.DINGO];
 
 class WalletManager {
-    callRpc(method: string, params: Array<string>, walletName: CurrencyTypes) {
+    callRpc<T>(method: string, params: Array<string>, walletName: CurrencyTypes): Promise<T> {
         const cookie = this.getCookie(walletName);
         const options = {
             url: "http://localhost:" + 3333, //TODO: fix port
@@ -45,7 +44,7 @@ class WalletManager {
             body: JSON.stringify({ "jsonrpc": "1.0", "method": method, "params": params })
         };
 
-        return new Promise((resolve, reject) => {
+        return new Promise<T>((resolve, reject) => {
             request(options, (err, resp, body) => {
                 if (err) {
                     return reject(err);
@@ -54,7 +53,6 @@ class WalletManager {
                         .replace(/"(amount|value)":\s*(\d+)\.((\d*?[1-9])0*),/g, '"$1":"$2\.$4",')
                         .replace(/"(amount|value)":\s*(\d+)\.0+,/g, '"$1":"$2",'));
                     if (r.error) {
-                        console.log(r.error.message)
                         reject(r.error.message);
                     } else {
                         resolve(r.result);
@@ -78,16 +76,19 @@ class WalletManager {
             case CurrencyTypes.BTC: {
                 return "1btcaddress0"
             }
-            case CurrencyTypes.DOGE: {
-                return "Dogeaddress0"
+            case CurrencyTypes.DINGO: {
+                return this.callRpc<string>("getnewaddress", [], CurrencyTypes.DINGO)
+                    .then(address => address)
+                    .catch(error => {
+                        console.error("Failed to generate DINGO address:", error);
+                        return null;
+                    });
             }
         }
     }
 }
 
 const walletManager = new WalletManager();
-
-walletManager.callRpc("getblockchaininfo", [], CurrencyTypes.DOGE).then(result => console.log(result))
 
 //payments
 let allPayments: Array<PaymentManager> = [];
@@ -114,7 +115,11 @@ class PaymentManager {
         this.paymentCreator = paymentCreator;
         this.paymentAmount = paymentAmount;
         this.paymentCurrency = paymentCurrency;
-        this.paymentDestationAddress = paymentDestinationAddress == "" ? walletManager.generateAddress(paymentCurrency) : paymentDestinationAddress;
+        this.initPaymentDestinationAddress(paymentDestinationAddress, paymentCurrency);
+    }
+
+    async initPaymentDestinationAddress(paymentDestinationAddress: string, paymentCurrency: CurrencyTypes) {
+        this.paymentDestationAddress = paymentDestinationAddress === "" ? await walletManager.generateAddress(paymentCurrency) : paymentDestinationAddress;
     }
 
     print() {
@@ -154,9 +159,9 @@ class PaymentMonitor {
     }
 }
 
-const generatedPayment: PaymentManager = new PaymentManager("", "user33133", 34949 * 1e8, CurrencyTypes.DOGE, "")
-const generatedPayment2: PaymentManager = new PaymentManager("", "user25513", 41556 * 1e8, CurrencyTypes.DOGE, "")
-const generatedPayment3: PaymentManager = new PaymentManager("1234fff", "user143433", 345155 * 1e8, CurrencyTypes.DOGE, "d111rrr222")
+const generatedPayment: PaymentManager = new PaymentManager("", "user33133", 34949 * 1e8, CurrencyTypes.DINGO, "")
+const generatedPayment2: PaymentManager = new PaymentManager("", "user25513", 41556 * 1e8, CurrencyTypes.DINGO, "")
+const generatedPayment3: PaymentManager = new PaymentManager("1234fff", "user143433", 345155 * 1e8, CurrencyTypes.DINGO, "d111rrr222")
 
 paymentsToWatch.push(generatedPayment.getPayment())
 allPayments.push(generatedPayment)
