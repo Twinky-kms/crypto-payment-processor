@@ -116,7 +116,12 @@ class PaymentManager {
     }
 
     async initPaymentDestinationAddress(paymentDestinationAddress: string, paymentCurrency: CurrencyTypes) {
-        this.paymentDestationAddress = paymentDestinationAddress === "" ? await walletManager.generateAddress(paymentCurrency) : paymentDestinationAddress;
+        if (paymentDestinationAddress === "") {
+            const generatedAddress = await walletManager.generateAddress(paymentCurrency);
+            this.paymentDestationAddress = generatedAddress ? generatedAddress : "Address generation failed";
+        } else {
+            this.paymentDestationAddress = paymentDestinationAddress;
+        }
     }
 
     print() {
