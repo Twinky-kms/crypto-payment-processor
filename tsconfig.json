@@ -2,5 +2,5 @@
     "compilerOptions": {
       "strictNullChecks": false
     },
-    "files": ["src/PaymentProcessor.ts"]
+    "files": ["PaymentProcessor.ts"]
   }
