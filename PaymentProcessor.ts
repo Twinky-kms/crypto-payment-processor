@@ -113,6 +113,7 @@ class PaymentManager {
         this.paymentAmount = paymentAmount;
         this.paymentCurrency = paymentCurrency;
         this.initPaymentDestinationAddress(paymentDestinationAddress, paymentCurrency);
+        this.walletManager = new WalletManager();
     }
 
     async initPaymentDestinationAddress(paymentDestinationAddress: string, paymentCurrency: CurrencyTypes) {
