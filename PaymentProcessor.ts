@@ -77,7 +77,7 @@ class WalletManager {
                 return this.callRpc<string>("getnewaddress", [], CurrencyTypes.DINGO)
                     .then(address => address)
                     .catch(error => {
-                        console.error("Failed to generate DINGO address:", error);
+                        console.error("Failed to generate DINGO address: ", error);
                         return null;
                     });
             }
