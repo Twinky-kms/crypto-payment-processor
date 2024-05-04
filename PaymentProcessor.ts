@@ -83,6 +83,10 @@ class WalletManager {
             }
         }
     }
+
+    checkAddressBalance(currency: CurrencyTypes) {
+        return this.callRpc<Boolean>("")
+    }
 }
 
 const walletManager = new WalletManager();
@@ -106,6 +110,7 @@ class PaymentManager {
         submittedHeight: -1,
         state: TxState.EMPTY
     };
+    walletManager: WalletManager;
 
     constructor(paymentId: string, paymentCreator: string, paymentAmount: number, paymentCurrency: CurrencyTypes, paymentDestinationAddress: string) {
         this.paymentId = paymentId == "" ? Math.random().toString(16).slice(2) : paymentId;
