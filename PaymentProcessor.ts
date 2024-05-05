@@ -148,6 +148,22 @@ class PaymentManager {
 
 
 class PaymentMonitor {
+    findPayment(targetPaymentId: string) {
+        let foundMatch: Boolean = false;
+        let match: PaymentManager;
+        allPayments.forEach(payment => {
+            const paymentId: string = payment.paymentId;
+            if(paymentId == targetPaymentId) {
+                foundMatch = true;
+                match = payment;
+            }
+        })
+        if(foundMatch) {
+            return match;
+        }
+        return "No payment found."
+    }
+
     checkPayments() {
         paymentsToWatch.forEach(paymentElement => {
             const paymentId: string = paymentElement.paymentId
