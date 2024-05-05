@@ -1,16 +1,75 @@
 import { homedir } from 'os';
-import { readFileSync } from 'fs'
+import { readFileSync, existsSync } from 'fs'
 import * as request from "request"
+import { Database } from 'sqlite3';
 
-const MINIMUM_CONFIRMATIONS = 120;
+//databse
+class DatabaseHandler {
+    private db: Database;
+
+    constructor() {
+        const dbPath = 'payment-processor.db';
+        if (existsSync(dbPath)) {
+            this.db = new Database(dbPath, (err) => {
+                if (err) {
+                    console.error('Could not connect to database', err);
+                } else {
+                    console.log('Connected to the SQLite database.');
+                    this.setupDatabase();
+                }
+            });
+        } else {
+            console.log('Database does not exist. Please create the database file before connecting.');
+        }
+    }
+
+    private setupDatabase(): void {
+        const sql = `
+            CREATE TABLE IF NOT EXISTS payments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                paymentId TEXT NOT NULL UNIQUE,
+                paymentCreator TEXT NOT NULL,
+                paymentAmount INTEGER NOT NULL,
+                paymentCurrency INTEGER NOT NULL,
+                paymentDestinationAddress TEXT NOT NULL
+            );
+        `;
+        this.db.exec(sql, (err) => {
+            if (err) {
+                console.error("Error creating tables", err);
+            } else {
+                console.log("Tables created or already exist");
+            }
+        });
+    }
+
+    public insertPayment(payment: PaymentManager): void {
+        const sql = `INSERT INTO payments (paymentId, paymentCreator, paymentAmount, paymentCurrency, paymentDestinationAddress) VALUES (?, ?, ?, ?, ?)`;
+        this.db.run(sql, [payment.paymentId, payment.paymentCreator, payment.paymentAmount, payment.paymentCurrency, payment.paymentDestinationAddress], (err) => {
+            if (err) {
+                console.error('Error inserting payment', err);
+            } else {
+                console.log('Payment inserted successfully');
+            }
+        });
+    }
+
+    public close(): void {
+        this.db.close((err) => {
+            if (err) {
+                console.error('Error closing the database', err);
+            } else {
+                console.log('Database connection closed');
+            }
+        });
+    }
+}
 
 //tranactions
 enum TxState {
-    CONFIRMED,
+    EMPTY,
     UNCONFIRMED,
-    ABORTED, // user can abort a tx on some edge cases 
-    REVERTED, //in cases of reorgs.
-    EMPTY //if the payment tx hasn't been detected yet.
+    CONFIRMD
 }
 
 interface Transaction {
@@ -20,6 +79,8 @@ interface Transaction {
 }
 
 //wallets
+const MINIMUM_CONFIRMATIONS = 120;
+
 enum CurrencyTypes {
     BTC,
     DINGO
@@ -33,7 +94,7 @@ enum WalletInfo {
 const enabledCoins: Array<CurrencyTypes> = [CurrencyTypes.BTC, CurrencyTypes.DINGO];
 
 class WalletManager {
-    callRpc<T>(method: string, params: Array<string|number>, walletName: CurrencyTypes): Promise<T> {
+    private callRpc<T>(method: string, params: Array<string | number | Boolean>, walletName: CurrencyTypes): Promise<T> {
         const cookie = this.getCookie(walletName);
         const options = {
             url: "http://localhost:" + 3333, //TODO: fix port
@@ -61,19 +122,24 @@ class WalletManager {
         });
     }
 
-    getCookieLocation(targetWallet: CurrencyTypes) {
+    private getCookieLocation(targetWallet: CurrencyTypes) {
         return "~/coin/.cookie".replace("~", homedir()).replace("coin", WalletInfo[Object.keys(CurrencyTypes).indexOf(targetWallet.toFixed())])
     }
 
-    getCookie(targetWallet: CurrencyTypes) {
+    private getCookie(targetWallet: CurrencyTypes) {
         const data = readFileSync(this.getCookieLocation(targetWallet), 'utf-8').split(':');
         return { user: data[0], password: data[1] };
     }
 
-    generateAddress(currency: CurrencyTypes) {
+    public async generateAddress(currency: CurrencyTypes): Promise<string | null> {
         switch (currency) {
             case CurrencyTypes.BTC: {
-                return "1btcaddress0"
+                return this.callRpc<string>("getnewaddress", [], CurrencyTypes.DINGO)
+                    .then(address => address)
+                    .catch(error => {
+                        console.error("Failed to generate DINGO address: ", error);
+                        return null;
+                    });
             }
             case CurrencyTypes.DINGO: {
                 return this.callRpc<string>("getnewaddress", [], CurrencyTypes.DINGO)
@@ -86,28 +152,32 @@ class WalletManager {
         }
     }
 
-    checkAddressBalance(currency: CurrencyTypes, payment: PaymentManager, confirmations: number): Boolean {
-        const paymentState = payment.paymentTransaction.state;
-        if(paymentState == TxState.CONFIRMED || paymentState == TxState.ABORTED || paymentState == TxState.REVERTED) {
-            return false;
-        }
-        this.callRpc<number>("getbalance", [payment.paymentDestationAddress, confirmations], currency)
+    public checkPaymentState(currency: CurrencyTypes, payment: PaymentManager, confirmations: number): Boolean {
+        this.callRpc<number>("getbalance", [payment.paymentDestinationAddress, confirmations], currency)
             .then(addressBalance => {
                 console.log(addressBalance)
-                if(addressBalance >= payment.paymentAmount) {
+                if (addressBalance >= payment.paymentAmount) {
                     return true
                 } else {
                     return false
                 }
             }).catch(error => {
-                console.error("failed to check address balance for: " + payment.paymentDestationAddress)
+                console.error("failed to check address balance for: " + payment.paymentDestinationAddress)
                 console.error(error)
-                return false;
             })
+        return false;
     }
 
-    checkForNewTransactions(currency: CurrencyTypes, payment: PaymentManager, confirmations: number) {
-        this.callRpc<string>("listreceivedbyaddress", [payment.paymentDestationAddress, 0, false, false])
+    public checkPaymentAddressBalance(currency: CurrencyTypes, payment: PaymentManager, confirmations: number): number {
+        let response: number = -1;
+        this.callRpc<number>("getbalance", [payment.paymentDestinationAddress, confirmations], currency)
+            .then(addressBalance => {
+                response = addressBalance;
+            }).catch(error => {
+                console.error("failed to check address balance for: " + payment.paymentDestinationAddress)
+                console.error(error)
+            })
+        return response;
     }
 }
 
@@ -126,13 +196,13 @@ class PaymentManager {
     paymentCreator: string;
     paymentAmount: number;
     paymentCurrency: CurrencyTypes;
-    paymentDestationAddress: string;
+    paymentDestinationAddress: string;
     paymentTransaction: Transaction = {
         hash: "0x0",
         submittedHeight: -1,
         state: TxState.EMPTY
     };
-    
+
 
     walletManager: WalletManager;
 
@@ -145,54 +215,54 @@ class PaymentManager {
         this.walletManager = new WalletManager();
     }
 
-    async initPaymentDestinationAddress(paymentDestinationAddress: string, paymentCurrency: CurrencyTypes) {
+    private async initPaymentDestinationAddress(paymentDestinationAddress: string, paymentCurrency: CurrencyTypes) {
         if (paymentDestinationAddress === "") {
             const generatedAddress = await walletManager.generateAddress(paymentCurrency);
-            this.paymentDestationAddress = generatedAddress ? generatedAddress : "Address generation failed";
+            this.paymentDestinationAddress = generatedAddress ? generatedAddress : "Address generation failed";
         } else {
-            this.paymentDestationAddress = paymentDestinationAddress;
+            this.paymentDestinationAddress = paymentDestinationAddress;
         }
     }
 
-    print() {
+    public print() {
         return this;
     }
 
-    getPayment() {
+    public getPayment() {
         const payment: Payment = {
             paymentId: this.paymentId
         }
         return payment;
     }
 
-    updateTransaction(tx: Transaction) {
+    public updateTransaction(tx: Transaction) {
         this.paymentTransaction = tx;
     }
 }
 
 
 class PaymentMonitor {
-    findPayment(targetPaymentId: string) {
+    public findPayment(targetPaymentId: string) {
         let foundMatch: Boolean = false;
         let match: PaymentManager;
         allPayments.forEach(payment => {
             const paymentId: string = payment.paymentId;
-            if(paymentId == targetPaymentId) {
+            if (paymentId == targetPaymentId) {
                 foundMatch = true;
                 match = payment;
             }
         })
-        if(foundMatch) {
+        if (foundMatch) {
             return match;
         }
         return "No payment found."
     }
 
-    checkPayments() {
+    public checkPayments() {
         paymentsToWatch.forEach(paymentElement => {
             const paymentId: string = paymentElement.paymentId
             allPayments.forEach(allPaymentsElement => {
-                const payment: PaymentManager = new PaymentManager(allPaymentsElement.paymentId, allPaymentsElement.paymentCreator, allPaymentsElement.paymentAmount, allPaymentsElement.paymentCurrency, allPaymentsElement.paymentDestationAddress)
+                const payment: PaymentManager = new PaymentManager(allPaymentsElement.paymentId, allPaymentsElement.paymentCreator, allPaymentsElement.paymentAmount, allPaymentsElement.paymentCurrency, allPaymentsElement.paymentDestinationAddress)
                 if (paymentId == payment.paymentId) {
                     console.log("match")
                 }
@@ -200,22 +270,26 @@ class PaymentMonitor {
         })
     }
 
-    start() {
+    public start() {
         this.checkPayments();
         setInterval(this.checkPayments, 1e4)
     }
 }
 
-const generatedPayment: PaymentManager = new PaymentManager("", "user33133", 34949 * 1e8, CurrencyTypes.DINGO, "")
-const generatedPayment2: PaymentManager = new PaymentManager("", "user25513", 41556 * 1e8, CurrencyTypes.DINGO, "")
-const generatedPayment3: PaymentManager = new PaymentManager("1234fff", "user143433", 345155 * 1e8, CurrencyTypes.DINGO, "d111rrr222")
+// const wm: WalletManager = new WalletManager();
+// wm.generateAddress(CurrencyTypes.DINGO).then(address => {
+//     console.log(address)
+// })
+const generatedPayment: PaymentManager = new PaymentManager("", "user33133", 34949 * 1e8, CurrencyTypes.DINGO, "DCBjbDFqn7HxjnW6sAEyiGS1gsaRzZF5wU");
+// const generatedPayment2: PaymentManager = new PaymentManager("", "user25513", 41556 * 1e8, CurrencyTypes.DINGO, "")
+// const generatedPayment3: PaymentManager = new PaymentManager("1234fff", "user143433", 345155 * 1e8, CurrencyTypes.DINGO, "d111rrr222")
 
 paymentsToWatch.push(generatedPayment.getPayment())
 allPayments.push(generatedPayment)
-paymentsToWatch.push(generatedPayment2.getPayment())
-allPayments.push(generatedPayment2)
-paymentsToWatch.push(generatedPayment3.getPayment())
-allPayments.push(generatedPayment3)
+// paymentsToWatch.push(generatedPayment2.getPayment())
+// allPayments.push(generatedPayment2)
+// paymentsToWatch.push(generatedPayment3.getPayment())
+// allPayments.push(generatedPayment3)
 
 //start services
 
