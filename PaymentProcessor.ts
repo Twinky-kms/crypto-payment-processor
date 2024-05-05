@@ -4,23 +4,33 @@ import * as request from "request"
 import { Database } from 'sqlite3';
 
 //databse
+interface PaymentRow {
+    paymentId: string;
+    paymentCreator: string;
+    paymentAmount: number;
+    paymentCurrency: number;
+    paymentDestinationAddress: string;
+    txState: TxState;
+}
+
 class DatabaseHandler {
     private db: Database;
 
     constructor() {
         const dbPath = 'payment-processor.db';
-        if (existsSync(dbPath)) {
-            this.db = new Database(dbPath, (err) => {
-                if (err) {
-                    console.error('Could not connect to database', err);
-                } else {
-                    console.log('Connected to the SQLite database.');
-                    this.setupDatabase();
-                }
-            });
-        } else {
-            console.log('Database does not exist. Please create the database file before connecting.');
+        if (!existsSync(dbPath)) {
+            console.log('Database file does not exist. Creating new database file.');
+            const fs = require('fs');
+            fs.writeFileSync(dbPath, '');
         }
+        this.db = new Database(dbPath, (err) => {
+            if (err) {
+                console.error('Could not connect to database', err);
+            } else {
+                // console.log('Connected to the SQLite database.');
+                this.setupDatabase();
+            }
+        });
     }
 
     private setupDatabase(): void {
@@ -31,26 +41,74 @@ class DatabaseHandler {
                 paymentCreator TEXT NOT NULL,
                 paymentAmount INTEGER NOT NULL,
                 paymentCurrency INTEGER NOT NULL,
-                paymentDestinationAddress TEXT NOT NULL
+                paymentDestinationAddress TEXT NOT NULL,
+                txState TEXT NOT NULL
             );
         `;
         this.db.exec(sql, (err) => {
             if (err) {
                 console.error("Error creating tables", err);
             } else {
-                console.log("Tables created or already exist");
+                // console.log("Tables created or already exist");
             }
         });
     }
 
     public insertPayment(payment: PaymentManager): void {
-        const sql = `INSERT INTO payments (paymentId, paymentCreator, paymentAmount, paymentCurrency, paymentDestinationAddress) VALUES (?, ?, ?, ?, ?)`;
-        this.db.run(sql, [payment.paymentId, payment.paymentCreator, payment.paymentAmount, payment.paymentCurrency, payment.paymentDestinationAddress], (err) => {
+        const sql = `INSERT INTO payments (paymentId, paymentCreator, paymentAmount, paymentCurrency, paymentDestinationAddress, txState) VALUES (?, ?, ?, ?, ?, ?)`;
+        this.db.run(sql, [payment.paymentId, payment.paymentCreator, payment.paymentAmount, payment.paymentCurrency, payment.paymentDestinationAddress, payment.txState], (err) => {
             if (err) {
                 console.error('Error inserting payment', err);
             } else {
                 console.log('Payment inserted successfully');
             }
+        });
+    }
+
+    public fetchPayment(paymentId: string): Promise<PaymentManager | null> {
+        return new Promise((resolve, reject) => {
+            const sql = `SELECT * FROM payments WHERE paymentId = ?`;
+            this.db.get(sql, [paymentId], (err, row: PaymentRow) => {
+                if (err) {
+                    console.error('Error fetching payment', err);
+                    reject(err);
+                } else if (row) {
+                    const payment = new PaymentManager(row.paymentId, row.paymentCreator, row.paymentAmount, row.paymentCurrency, row.paymentDestinationAddress, row.txState);
+                    resolve(payment);
+                } else {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    public fetchUnconfirmedPayments(): Promise<PaymentManager[]> {
+        return new Promise((resolve, reject) => {
+            const sql = `SELECT * FROM payments WHERE txState = ? OR txState = ?`;
+            this.db.all(sql, [TxState.UNCONFIRMED, TxState.EMPTY], (err, rows: PaymentRow[]) => {
+                if (err) {
+                    console.error('Error fetching unconfirmed payments', err);
+                    reject(err);
+                } else {
+                    const payments = rows.map(row => new PaymentManager(row.paymentId, row.paymentCreator, row.paymentAmount, row.paymentCurrency, row.paymentDestinationAddress, row.txState));
+                    resolve(payments);
+                }
+            });
+        });
+    }
+
+    public fetchAllPayments(): Promise<PaymentManager[]> {
+        return new Promise((resolve, reject) => {
+            const sql = `SELECT * FROM payments`;
+            this.db.all(sql, [], (err, rows: PaymentRow[]) => {
+                if (err) {
+                    console.error('Error fetching all payments', err);
+                    reject(err);
+                } else {
+                    const payments = rows.map(row => new PaymentManager(row.paymentId, row.paymentCreator, row.paymentAmount, row.paymentCurrency, row.paymentDestinationAddress, row.txState));
+                    resolve(payments);
+                }
+            });
         });
     }
 
@@ -64,6 +122,15 @@ class DatabaseHandler {
         });
     }
 }
+const databaseHandler: DatabaseHandler = new DatabaseHandler();
+
+databaseHandler.fetchAllPayments()
+    .then(payments => {
+        console.log('All payments loaded from database:', payments);
+    })
+    .catch(err => {
+        console.error('Error loading payments from database', err);
+    });
 
 //tranactions
 enum TxState {
@@ -180,12 +247,7 @@ class WalletManager {
         return response;
     }
 }
-
 const walletManager = new WalletManager();
-
-//payments
-let allPayments: Array<PaymentManager> = [];
-let paymentsToWatch: Array<Payment> = [];
 
 interface Payment {
     paymentId: string,
@@ -197,21 +259,16 @@ class PaymentManager {
     paymentAmount: number;
     paymentCurrency: CurrencyTypes;
     paymentDestinationAddress: string;
-    paymentTransaction: Transaction = {
-        hash: "0x0",
-        submittedHeight: -1,
-        state: TxState.EMPTY
-    };
-
-
+    txState: TxState;
     walletManager: WalletManager;
 
-    constructor(paymentId: string, paymentCreator: string, paymentAmount: number, paymentCurrency: CurrencyTypes, paymentDestinationAddress: string) {
+    constructor(paymentId: string, paymentCreator: string, paymentAmount: number, paymentCurrency: CurrencyTypes, paymentDestinationAddress: string, txState: TxState) {
         this.paymentId = paymentId == "" ? Math.random().toString(16).slice(2) : paymentId;
         this.paymentCreator = paymentCreator;
         this.paymentAmount = paymentAmount;
         this.paymentCurrency = paymentCurrency;
         this.initPaymentDestinationAddress(paymentDestinationAddress, paymentCurrency);
+        this.txState = txState;
         this.walletManager = new WalletManager();
     }
 
@@ -234,36 +291,32 @@ class PaymentManager {
         }
         return payment;
     }
-
-    public updateTransaction(tx: Transaction) {
-        this.paymentTransaction = tx;
-    }
 }
 
 
 class PaymentMonitor {
-    public findPayment(targetPaymentId: string) {
-        let foundMatch: Boolean = false;
-        let match: PaymentManager;
-        allPayments.forEach(payment => {
-            const paymentId: string = payment.paymentId;
-            if (paymentId == targetPaymentId) {
-                foundMatch = true;
-                match = payment;
-            }
-        })
-        if (foundMatch) {
-            return match;
-        }
-        return "No payment found."
+    private databaseHandler: DatabaseHandler;
+
+    constructor(databaseHandler: DatabaseHandler) {
+        this.databaseHandler = databaseHandler;
     }
 
-    public checkPayments() {
+    public async findPayment(targetPaymentId: string): Promise<PaymentManager | string> {
+        const payment = await this.databaseHandler.fetchPayment(targetPaymentId);
+        if (payment) {
+            return payment;
+        }
+        return "No payment found.";
+    }
+
+    public async checkPayments(databaseHandler: DatabaseHandler) {
+        const allPayments = await databaseHandler.fetchAllPayments();
+        const paymentsToWatch = await databaseHandler.fetchUnconfirmedPayments();
         paymentsToWatch.forEach(paymentElement => {
+            console.log(paymentElement)
             const paymentId: string = paymentElement.paymentId
             allPayments.forEach(allPaymentsElement => {
-                const payment: PaymentManager = new PaymentManager(allPaymentsElement.paymentId, allPaymentsElement.paymentCreator, allPaymentsElement.paymentAmount, allPaymentsElement.paymentCurrency, allPaymentsElement.paymentDestinationAddress)
-                if (paymentId == payment.paymentId) {
+                if (paymentId == allPaymentsElement.paymentId) {
                     console.log("match")
                 }
             })
@@ -271,33 +324,20 @@ class PaymentMonitor {
     }
 
     public start() {
-        this.checkPayments();
-        setInterval(this.checkPayments, 1e4)
+        // this.checkPayments();
+        setInterval(() => {
+            const databaseHandler: DatabaseHandler = new DatabaseHandler();
+            this.checkPayments(databaseHandler);
+        }, 1e4)
     }
 }
 
-// const wm: WalletManager = new WalletManager();
-// wm.generateAddress(CurrencyTypes.DINGO).then(address => {
-//     console.log(address)
-// })
-const generatedPayment: PaymentManager = new PaymentManager("", "user33133", 34949 * 1e8, CurrencyTypes.DINGO, "DCBjbDFqn7HxjnW6sAEyiGS1gsaRzZF5wU");
-// const generatedPayment2: PaymentManager = new PaymentManager("", "user25513", 41556 * 1e8, CurrencyTypes.DINGO, "")
-// const generatedPayment3: PaymentManager = new PaymentManager("1234fff", "user143433", 345155 * 1e8, CurrencyTypes.DINGO, "d111rrr222")
+const generatedPayment: PaymentManager = new PaymentManager("", "user33133", 34949 * 1e8, CurrencyTypes.DINGO, "DCBjbDFqn7HxjnW6sAEyiGS1gsaRzZF5wU", TxState.EMPTY);
 
-paymentsToWatch.push(generatedPayment.getPayment())
-allPayments.push(generatedPayment)
-// paymentsToWatch.push(generatedPayment2.getPayment())
-// allPayments.push(generatedPayment2)
-// paymentsToWatch.push(generatedPayment3.getPayment())
-// allPayments.push(generatedPayment3)
+databaseHandler.insertPayment(generatedPayment)
 
 //start services
 
-const monitor = new PaymentMonitor;
+
+const monitor = new PaymentMonitor(databaseHandler);
 monitor.start();
-
-//find payment test
-const payment = monitor.findPayment("1234fff");
-
-console.log("::::")
-console.log(payment)
