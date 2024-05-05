@@ -86,12 +86,12 @@ class WalletManager {
         }
     }
 
-    checkAddressBalance(currency: CurrencyTypes, payment: PaymentManager) {
+    checkAddressBalance(currency: CurrencyTypes, payment: PaymentManager, confirmations: number): Boolean {
         const paymentState = payment.paymentTransaction.state;
         if(paymentState == TxState.CONFIRMED || paymentState == TxState.ABORTED || paymentState == TxState.REVERTED) {
             return false;
         }
-        this.callRpc<number>("getbalance", [payment.paymentDestationAddress, MINIMUM_CONFIRMATIONS], currency)
+        this.callRpc<number>("getbalance", [payment.paymentDestationAddress, confirmations], currency)
             .then(addressBalance => {
                 console.log(addressBalance)
                 if(addressBalance >= payment.paymentAmount) {
@@ -102,7 +102,12 @@ class WalletManager {
             }).catch(error => {
                 console.error("failed to check address balance for: " + payment.paymentDestationAddress)
                 console.error(error)
+                return false;
             })
+    }
+
+    checkForNewTransactions(currency: CurrencyTypes, payment: PaymentManager, confirmations: number) {
+        this.callRpc<string>("listreceivedbyaddress", [payment.paymentDestationAddress, 0, false, false])
     }
 }
 
@@ -127,6 +132,8 @@ class PaymentManager {
         submittedHeight: -1,
         state: TxState.EMPTY
     };
+    
+
     walletManager: WalletManager;
 
     constructor(paymentId: string, paymentCreator: string, paymentAmount: number, paymentCurrency: CurrencyTypes, paymentDestinationAddress: string) {
