@@ -1,6 +1,15 @@
 {
-    "compilerOptions": {
-      "strictNullChecks": false
-    },
-    "files": ["PaymentProcessor.ts"]
-  }
+  "compilerOptions": {
+    "strictNullChecks": true,
+    "target": "es6",
+    "module": "commonjs",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

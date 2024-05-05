@@ -139,12 +139,6 @@ enum TxState {
     CONFIRMD
 }
 
-interface Transaction {
-    hash: string,
-    submittedHeight: number,
-    state: TxState
-}
-
 //wallets
 const MINIMUM_CONFIRMATIONS = 120;
 
@@ -295,7 +289,6 @@ class PaymentManager {
 
 
 class PaymentMonitor {
-
     public async findPayment(targetPaymentId: string, databaseHandler: DatabaseHandler): Promise<PaymentManager | string> {
         const payment = await databaseHandler.fetchPayment(targetPaymentId);
         if (payment) {
