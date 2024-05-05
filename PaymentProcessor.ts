@@ -197,3 +197,9 @@ allPayments.push(generatedPayment3)
 
 const monitor = new PaymentMonitor;
 monitor.start();
+
+//find payment test
+const payment = monitor.findPayment("1234fff");
+
+console.log("::::")
+console.log(payment)
