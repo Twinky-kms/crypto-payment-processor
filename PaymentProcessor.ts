@@ -2,6 +2,8 @@ import { homedir } from 'os';
 import { readFileSync } from 'fs'
 import * as request from "request"
 
+const MINIMUM_CONFIRMATIONS = 120;
+
 //tranactions
 enum TxState {
     CONFIRMED,
@@ -31,7 +33,7 @@ enum WalletInfo {
 const enabledCoins: Array<CurrencyTypes> = [CurrencyTypes.BTC, CurrencyTypes.DINGO];
 
 class WalletManager {
-    callRpc<T>(method: string, params: Array<string>, walletName: CurrencyTypes): Promise<T> {
+    callRpc<T>(method: string, params: Array<string|number>, walletName: CurrencyTypes): Promise<T> {
         const cookie = this.getCookie(walletName);
         const options = {
             url: "http://localhost:" + 3333, //TODO: fix port
@@ -84,8 +86,23 @@ class WalletManager {
         }
     }
 
-    checkAddressBalance(currency: CurrencyTypes) {
-        return this.callRpc<Boolean>("")
+    checkAddressBalance(currency: CurrencyTypes, payment: PaymentManager) {
+        const paymentState = payment.paymentTransaction.state;
+        if(paymentState == TxState.CONFIRMED || paymentState == TxState.ABORTED || paymentState == TxState.REVERTED) {
+            return false;
+        }
+        this.callRpc<number>("getbalance", [payment.paymentDestationAddress, MINIMUM_CONFIRMATIONS], currency)
+            .then(addressBalance => {
+                console.log(addressBalance)
+                if(addressBalance >= payment.paymentAmount) {
+                    return true
+                } else {
+                    return false
+                }
+            }).catch(error => {
+                console.error("failed to check address balance for: " + payment.paymentDestationAddress)
+                console.error(error)
+            })
     }
 }
 
