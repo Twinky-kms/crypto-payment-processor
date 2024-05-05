@@ -254,13 +254,13 @@ interface Payment {
 }
 
 class PaymentManager {
-    paymentId: string;
-    paymentCreator: string;
-    paymentAmount: number;
-    paymentCurrency: CurrencyTypes;
-    paymentDestinationAddress: string;
-    txState: TxState;
-    walletManager: WalletManager;
+    public paymentId: string;
+    public paymentCreator: string;
+    public paymentAmount: number;
+    public paymentCurrency: CurrencyTypes;
+    public paymentDestinationAddress: string;
+    public txState: TxState;
+    private walletManager: WalletManager;
 
     constructor(paymentId: string, paymentCreator: string, paymentAmount: number, paymentCurrency: CurrencyTypes, paymentDestinationAddress: string, txState: TxState) {
         this.paymentId = paymentId == "" ? Math.random().toString(16).slice(2) : paymentId;
@@ -295,14 +295,9 @@ class PaymentManager {
 
 
 class PaymentMonitor {
-    private databaseHandler: DatabaseHandler;
 
-    constructor(databaseHandler: DatabaseHandler) {
-        this.databaseHandler = databaseHandler;
-    }
-
-    public async findPayment(targetPaymentId: string): Promise<PaymentManager | string> {
-        const payment = await this.databaseHandler.fetchPayment(targetPaymentId);
+    public async findPayment(targetPaymentId: string, databaseHandler: DatabaseHandler): Promise<PaymentManager | string> {
+        const payment = await databaseHandler.fetchPayment(targetPaymentId);
         if (payment) {
             return payment;
         }
@@ -339,5 +334,5 @@ databaseHandler.insertPayment(generatedPayment)
 //start services
 
 
-const monitor = new PaymentMonitor(databaseHandler);
+const monitor = new PaymentMonitor();
 monitor.start();
